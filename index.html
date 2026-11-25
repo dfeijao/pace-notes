@@ -1,0 +1,708 @@
+<!doctype html><html lang="pt-PT"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body><title>Pace Notes Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+  /* Palete de caderno de notas de rali, à noite: fundo carvão, âmbar de lanterna, escala de severidade do vermelho ao verde. */
+  :root {
+    --bg: #0e1113; --panel: #161b1e; --line: #2a3338; --fg: #e9eeeb; --muted: #8e9c97;
+    --accent: #ffb21e; --accent-ink: #1a1300; --left: #52c7ff; --right: #ff8a5c;
+    --map: #0b0e10; --road: #e9eeeb; --past: #3a454a;
+    --s1: #ff4d4d; --s2: #ff8a3d; --s3: #ffc233; --s4: #b8d94a; --s5: #5fd38a;
+    --display: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --ui: "Inter", system-ui, -apple-system, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { background: var(--bg); }
+  body { color: var(--fg); font: 15px/1.45 var(--ui); padding-block: 14px 40px;
+         padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .wrap { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  h1 { font: 700 30px/1 var(--display); letter-spacing: .04em; text-transform: uppercase; margin: 0; }
+  .stats { font: 400 12px/1.4 var(--mono); color: var(--muted); margin: 6px 0 0; overflow-wrap: anywhere; }
+  .stage { position: relative; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--map); }
+  canvas { display: block; width: 100%; height: clamp(320px, 56vh, 560px); }
+  .hud { position: absolute; inset: 0 0 auto 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+         padding: 12px 14px; background: linear-gradient(var(--map) 55%, transparent); pointer-events: none; }
+  #callout { font: 700 clamp(30px, 8vw, 46px)/1 var(--display); text-transform: uppercase; letter-spacing: .02em; min-width: 0; text-wrap: balance; }
+  #callout.flash { animation: flash .7s ease-out; }
+  @keyframes flash { from { color: var(--accent); } to { color: var(--fg); } }
+  .side { text-align: right; flex: none; }
+  #dist { font: 700 clamp(30px, 8vw, 46px)/1 var(--display); color: var(--accent); }
+  .speed { font: 500 12px var(--mono); color: var(--muted); }
+  .speed b { font-size: 20px; color: var(--fg); font-weight: 700; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .modes { display: flex; gap: 6px; }
+  button { font: 600 14px var(--ui); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; cursor: pointer; }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); min-width: 118px; }
+  button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .bar .grow { flex: 1; min-width: 160px; }
+  .mono { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; font-size: 13px; }
+  .row output { font: 500 13px var(--mono); color: var(--accent); }
+  .row input { grid-column: 1 / -1; }
+  details > summary { cursor: pointer; font: 600 13px var(--ui); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  details[open] > summary { margin-bottom: 12px; }
+  .inner { display: flex; flex-direction: column; gap: 12px; }
+  select { font: 400 13px var(--ui); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; max-width: 100%; }
+  label.check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  #log { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; font: 400 13px/1.5 var(--mono); }
+  #log li { display: flex; gap: 12px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+  #log .km { color: var(--muted); flex: none; }
+  #log li.skipped { color: var(--muted); text-decoration: line-through; }
+  .note { color: var(--muted); font-size: 12px; margin: 0; }
+  #gpsMsg { font: 400 13px var(--mono); color: var(--muted); margin: 0; overflow-wrap: anywhere; }
+  .file { font-size: 13px; }
+  @media (prefers-reduced-motion: reduce) { #callout.flash { animation: none; } }
+</style>
+<div class="wrap">
+  <header>
+    <h1>Pace Notes Lab</h1>
+    <p class="stats" id="stats"></p>
+  </header>
+
+  <div class="stage">
+    <canvas id="map" aria-label="Mapa do percurso visto de cima, com a frente do carro para cima"></canvas>
+    <div class="hud">
+      <div id="callout">—</div>
+      <div class="side"><div id="dist"></div><div class="speed"><b id="kmh">0</b> km/h</div></div>
+    </div>
+  </div>
+
+  <section class="panel" aria-label="Controlos">
+    <div class="modes">
+      <button id="modeSim" aria-pressed="true">Simulação</button>
+      <button id="modeGps" aria-pressed="false">GPS real</button>
+    </div>
+    <div id="simControls" class="inner">
+      <div class="bar">
+        <button id="play" class="primary">Iniciar</button>
+        <span class="mono" id="kmLabel"></span>
+      </div>
+      <input type="range" id="seek" min="0" max="1000" step="10" value="0" aria-label="Posição no percurso">
+      <div class="bar">
+        <label class="check" for="pace">Andamento
+          <select id="pace">
+            <option value="calmo">Calmo</option>
+            <option value="normal">Normal</option>
+            <option value="rapido">Rápido</option>
+            <option value="constante">Velocidade constante</option>
+          </select>
+        </label>
+        <div class="grow"><input type="range" id="speedRange" min="30" max="130" step="5" aria-label="Velocidade máxima simulada"><span class="mono" id="speedLabel"></span></div>
+      </div>
+      <p class="note" id="simInfo"></p>
+    </div>
+    <div id="gpsBox" class="inner" hidden>
+      <p id="gpsMsg"></p>
+      <p class="note">No modo GPS a posição vem do telemóvel e a voz acompanha-te ao longo da rota carregada. Mantém o ecrã ligado e o Safari à frente. A localização fica só neste telemóvel.</p>
+      <p class="mono" id="recInfo"></p>
+      <div class="bar">
+        <button id="recSave">Descarregar gravação</button>
+        <button id="recClear">Apagar gravação</button>
+      </div>
+    </div>
+    <div id="mainTuning" class="inner"></div>
+    <label class="check"><input type="checkbox" id="voiceOn" checked> Voz ligada</label>
+  </section>
+
+  <details class="panel">
+    <summary>Afinação</summary>
+    <div class="inner">
+      <div id="tuning" class="inner"></div>
+      <div class="bar"><button id="reset">Repor valores</button></div>
+    </div>
+  </details>
+
+  <details class="panel">
+    <summary>Voz e percurso</summary>
+    <div class="inner">
+      <div class="bar"><select id="voice" aria-label="Voz"></select><button id="testVoice">Testar voz</button></div>
+      <label class="file">Carregar outro percurso (GPX): <input type="file" id="gpx" accept=".gpx,application/gpx+xml,.xml"></label>
+    </div>
+  </details>
+
+  <details class="panel" open>
+    <summary>Chamadas feitas</summary>
+    <div class="inner">
+      <ul id="log"></ul>
+      <div class="bar"><button id="clearLog">Limpar</button></div>
+    </div>
+  </details>
+</div>
+<script>
+const ROUTE_NAME = "Loulé → Caldeirão";
+const ROUTE = [[37.15021,-8.00989],[37.15044,-8.00976],[37.15108,-8.00941],[37.15132,-8.00928],[37.15168,-8.00908],[37.15182,-8.009],[37.15202,-8.00889],[37.15223,-8.00875],[37.1524,-8.00861],[37.1526,-8.00844],[37.15285,-8.0082],[37.15308,-8.00799],[37.15322,-8.00787],[37.15335,-8.0078],[37.15343,-8.00777],[37.15351,-8.00774],[37.15364,-8.0077],[37.15424,-8.00757],[37.15541,-8.00725],[37.1555,-8.00722],[37.15557,-8.00721],[37.15589,-8.00711],[37.15638,-8.00697],[37.1582,-8.00645],[37.15841,-8.00641],[37.15864,-8.00637],[37.15917,-8.0063],[37.15966,-8.00622],[37.16003,-8.00614],[37.16102,-8.00592],[37.16198,-8.0057],[37.16225,-8.00562],[37.1624,-8.00554],[37.16252,-8.00545],[37.16268,-8.0053],[37.16281,-8.00508],[37.16318,-8.00445],[37.16333,-8.0042],[37.1636,-8.00376],[37.16375,-8.00356],[37.16392,-8.00343],[37.16411,-8.00333],[37.16624,-8.00235],[37.16638,-8.00228],[37.16658,-8.00218],[37.16674,-8.00207],[37.16688,-8.00194],[37.16704,-8.00179],[37.16835,-8.00049],[37.17009,-7.99877],[37.17071,-7.99814],[37.17108,-7.99754],[37.17222,-7.99561],[37.17236,-7.99538],[37.17253,-7.99521],[37.17271,-7.99509],[37.17288,-7.995],[37.17339,-7.99481],[37.17402,-7.99458],[37.17415,-7.99454],[37.17426,-7.99447],[37.17436,-7.99434],[37.17446,-7.99417],[37.17477,-7.99344],[37.17483,-7.99333],[37.1749,-7.99321],[37.17501,-7.99311],[37.17511,-7.99305],[37.1754,-7.99287],[37.17553,-7.99276],[37.17566,-7.99261],[37.17601,-7.99196],[37.17612,-7.99183],[37.17624,-7.99176],[37.17636,-7.99174],[37.1765,-7.99173],[37.17673,-7.99172],[37.17714,-7.99169],[37.17739,-7.99168],[37.17752,-7.99169],[37.17767,-7.99173],[37.17779,-7.99178],[37.17821,-7.99197],[37.17834,-7.99198],[37.17844,-7.99195],[37.17855,-7.99188],[37.17895,-7.99155],[37.17909,-7.99148],[37.17922,-7.99144],[37.18003,-7.99143],[37.18019,-7.9914],[37.1803,-7.99134],[37.18041,-7.99124],[37.18048,-7.99115],[37.18087,-7.99063],[37.18096,-7.99048],[37.18097,-7.99045],[37.18121,-7.98992],[37.18128,-7.9898],[37.18135,-7.9897],[37.18139,-7.98967],[37.18145,-7.98963],[37.18159,-7.98957],[37.18165,-7.98955],[37.18173,-7.98952],[37.18205,-7.98941],[37.18222,-7.98939],[37.18239,-7.9894],[37.18258,-7.98948],[37.18286,-7.98967],[37.18297,-7.98977],[37.18308,-7.98994],[37.18317,-7.99014],[37.18327,-7.99042],[37.18335,-7.99057],[37.18345,-7.99068],[37.18357,-7.99076],[37.18368,-7.9908],[37.18434,-7.99107],[37.18449,-7.99114],[37.18461,-7.99123],[37.18475,-7.99137],[37.18489,-7.99152],[37.18513,-7.99174],[37.18529,-7.99187],[37.18548,-7.99197],[37.18567,-7.99204],[37.18629,-7.99221],[37.18642,-7.99225],[37.18651,-7.99233],[37.18659,-7.99242],[37.18666,-7.99256],[37.18673,-7.99274],[37.18687,-7.99313],[37.18694,-7.99325],[37.18703,-7.99334],[37.18716,-7.99338],[37.18728,-7.99338],[37.18748,-7.99337],[37.1876,-7.99338],[37.18771,-7.99341],[37.18786,-7.99349],[37.18831,-7.99374],[37.18849,-7.99382],[37.18865,-7.99385],[37.18878,-7.99384],[37.1889,-7.9938],[37.18903,-7.9937],[37.18933,-7.99344],[37.18944,-7.99338],[37.18956,-7.99334],[37.18973,-7.99331],[37.18986,-7.99327],[37.18993,-7.9932],[37.18994,-7.9932],[37.18999,-7.99312],[37.19002,-7.99303],[37.19003,-7.99289],[37.19002,-7.99275],[37.18998,-7.99261],[37.18983,-7.99207],[37.1898,-7.99192],[37.18979,-7.9918],[37.18979,-7.99167],[37.18983,-7.99152],[37.18987,-7.99139],[37.18996,-7.99109],[37.18998,-7.99096],[37.18999,-7.99082],[37.18996,-7.99069],[37.18991,-7.99056],[37.18968,-7.99008],[37.18942,-7.98951],[37.18937,-7.9894],[37.18935,-7.98929],[37.18934,-7.98917],[37.18937,-7.98905],[37.18942,-7.98894],[37.18949,-7.98885],[37.18957,-7.98878],[37.18965,-7.98875],[37.18999,-7.98862],[37.19009,-7.98862],[37.19017,-7.98865],[37.19024,-7.98871],[37.19037,-7.98884],[37.19045,-7.98891],[37.19057,-7.98896],[37.19066,-7.98899],[37.19099,-7.98909],[37.19106,-7.98911],[37.19114,-7.9891],[37.1912,-7.98906],[37.19125,-7.98899],[37.19142,-7.98872],[37.1915,-7.98861],[37.19177,-7.98822],[37.19184,-7.9881],[37.19187,-7.988],[37.19189,-7.98786],[37.1919,-7.98773],[37.19191,-7.98762],[37.19194,-7.98752],[37.19202,-7.98736],[37.19212,-7.98724],[37.19225,-7.98716],[37.19239,-7.98712],[37.19263,-7.9871],[37.19275,-7.98705],[37.19286,-7.98694],[37.1931,-7.98663],[37.19316,-7.98651],[37.19321,-7.98635],[37.19324,-7.9862],[37.19349,-7.98497],[37.19351,-7.98484],[37.19356,-7.98471],[37.19362,-7.98459],[37.19371,-7.98446],[37.19403,-7.98401],[37.19413,-7.98384],[37.19425,-7.9836],[37.19434,-7.98339],[37.19438,-7.9832],[37.19435,-7.98303],[37.1943,-7.98289],[37.19423,-7.98281],[37.19414,-7.98273],[37.19396,-7.98262],[37.19379,-7.9825],[37.1937,-7.98238],[37.19365,-7.98223],[37.19363,-7.98206],[37.19365,-7.98192],[37.19372,-7.98164],[37.1938,-7.98139],[37.19388,-7.98124],[37.19399,-7.98106],[37.19448,-7.98029],[37.19459,-7.98009],[37.19462,-7.98007],[37.19465,-7.98004],[37.19474,-7.98001],[37.19485,-7.97996],[37.19494,-7.97995],[37.19504,-7.97993],[37.19517,-7.97992],[37.19542,-7.97992],[37.19552,-7.9799],[37.19558,-7.97986],[37.19563,-7.97982],[37.19567,-7.97975],[37.19573,-7.97965],[37.19575,-7.97963],[37.19578,-7.97956],[37.19587,-7.97939],[37.19615,-7.97885],[37.19662,-7.97783],[37.1967,-7.97767],[37.19675,-7.97752],[37.19678,-7.97737],[37.19682,-7.97712],[37.19689,-7.97688],[37.19696,-7.97671],[37.19729,-7.97589],[37.19743,-7.97571],[37.19784,-7.97554],[37.19822,-7.97511],[37.19853,-7.97433],[37.19858,-7.97417],[37.19873,-7.97365],[37.19904,-7.9733],[37.19942,-7.97289],[37.19955,-7.97276],[37.19975,-7.97261],[37.19992,-7.9726],[37.20037,-7.97262],[37.20054,-7.97262],[37.20069,-7.9726],[37.20077,-7.97251],[37.20084,-7.97242],[37.20088,-7.97228],[37.20089,-7.97211],[37.2009,-7.97204],[37.20083,-7.9718],[37.20079,-7.97163],[37.20042,-7.97016],[37.20042,-7.96977],[37.20056,-7.96934],[37.20073,-7.9688],[37.20072,-7.96854],[37.20064,-7.96831],[37.20045,-7.96785],[37.20052,-7.96688],[37.20062,-7.96601],[37.20086,-7.96575],[37.20106,-7.96558],[37.20157,-7.96541],[37.20251,-7.96506],[37.2032,-7.96481],[37.20353,-7.96464],[37.20361,-7.96448],[37.20363,-7.96429],[37.2036,-7.9641],[37.20359,-7.96395],[37.20351,-7.9634],[37.20349,-7.96318],[37.20347,-7.96285],[37.20359,-7.96249],[37.20371,-7.96214],[37.20375,-7.96204],[37.20386,-7.9617],[37.20401,-7.96147],[37.20417,-7.96133],[37.20457,-7.96102],[37.20461,-7.96098],[37.20513,-7.9606],[37.20525,-7.96032],[37.20528,-7.95999],[37.20526,-7.95945],[37.20531,-7.95917],[37.20543,-7.9589],[37.20569,-7.95862],[37.20618,-7.95815],[37.20636,-7.95798],[37.20647,-7.95777],[37.20654,-7.95742],[37.20658,-7.95723],[37.2067,-7.95695],[37.20696,-7.95656],[37.2071,-7.95624],[37.20719,-7.9558],[37.20737,-7.95538],[37.20797,-7.95476],[37.20867,-7.95411],[37.20893,-7.95399],[37.20896,-7.95398],[37.20928,-7.95396],[37.20978,-7.95421],[37.21078,-7.95477],[37.21119,-7.95502],[37.21128,-7.95503],[37.21148,-7.95505],[37.21167,-7.95503],[37.21176,-7.95498],[37.21222,-7.95475],[37.21255,-7.95459],[37.2133,-7.95424],[37.21366,-7.95412],[37.21388,-7.95412],[37.21549,-7.9544],[37.21631,-7.95476],[37.21699,-7.95517],[37.21717,-7.95527],[37.21735,-7.95548],[37.21749,-7.95585],[37.21793,-7.95725],[37.21807,-7.95756],[37.21826,-7.9578],[37.21849,-7.95796],[37.21878,-7.95814],[37.21897,-7.95826],[37.21921,-7.95837],[37.21939,-7.9584],[37.21954,-7.95838],[37.22105,-7.95762],[37.2216,-7.95734],[37.22181,-7.95717],[37.22196,-7.9569],[37.22213,-7.95662],[37.22225,-7.95652],[37.22339,-7.95588],[37.22377,-7.95561],[37.22464,-7.95524],[37.22499,-7.95476],[37.22511,-7.95451],[37.22576,-7.95322],[37.22601,-7.9527],[37.22602,-7.95267],[37.22633,-7.95134],[37.22652,-7.95056],[37.22661,-7.95041],[37.22673,-7.9503],[37.22694,-7.9503],[37.22711,-7.9504],[37.22722,-7.95059],[37.22731,-7.95081],[37.22743,-7.95116],[37.22763,-7.95142],[37.22792,-7.95148],[37.22882,-7.95152],[37.229,-7.9516],[37.22912,-7.95167],[37.22963,-7.9524],[37.23004,-7.95314],[37.23019,-7.95354],[37.23022,-7.9539],[37.23022,-7.95416],[37.23025,-7.95435],[37.23033,-7.95451],[37.23049,-7.95463],[37.23077,-7.95475],[37.23108,-7.95488],[37.23122,-7.95504],[37.2313,-7.95524],[37.2313,-7.95555],[37.23127,-7.95579],[37.23123,-7.956],[37.23109,-7.95617],[37.23097,-7.95636],[37.23088,-7.95658],[37.23088,-7.95678],[37.23094,-7.95698],[37.23127,-7.95773],[37.23137,-7.95795],[37.23143,-7.95817],[37.23146,-7.9584],[37.23146,-7.95862],[37.23142,-7.95883],[37.23125,-7.95977],[37.23125,-7.95993],[37.23128,-7.96006],[37.23135,-7.96018],[37.23143,-7.96025],[37.23151,-7.9603],[37.23155,-7.96031],[37.23163,-7.96035],[37.2317,-7.9604],[37.23174,-7.96044],[37.23179,-7.96053],[37.23181,-7.96062],[37.23181,-7.96073],[37.23179,-7.96087],[37.23174,-7.96118],[37.23172,-7.96134],[37.23172,-7.96139],[37.23172,-7.96145],[37.23174,-7.9615],[37.23176,-7.96155],[37.23178,-7.96159],[37.23181,-7.96163],[37.23184,-7.96166],[37.23187,-7.96168],[37.2319,-7.96169],[37.23194,-7.96169],[37.23197,-7.9617],[37.232,-7.9617],[37.23203,-7.96169],[37.23207,-7.96168],[37.23211,-7.96166],[37.23224,-7.96152],[37.23235,-7.96141],[37.2325,-7.96126],[37.23262,-7.96111],[37.23273,-7.96094],[37.23283,-7.96076],[37.23396,-7.95874],[37.23429,-7.95815],[37.23446,-7.95796],[37.2347,-7.95787],[37.23501,-7.9579],[37.23531,-7.95784],[37.23562,-7.95742],[37.23572,-7.95708],[37.23568,-7.95687],[37.23566,-7.95674],[37.23422,-7.95415],[37.23409,-7.9538],[37.23403,-7.95321],[37.23395,-7.95252],[37.23386,-7.95223],[37.23318,-7.95144],[37.23314,-7.95141],[37.23298,-7.95127],[37.23237,-7.95084],[37.23204,-7.9505],[37.23177,-7.95],[37.23152,-7.9493],[37.23115,-7.94825],[37.23086,-7.94744],[37.23047,-7.94672],[37.23039,-7.94639],[37.23047,-7.94598],[37.23065,-7.94576],[37.23088,-7.94566],[37.23125,-7.94553],[37.23164,-7.94531],[37.23183,-7.94523],[37.23202,-7.94525],[37.23229,-7.94546],[37.23267,-7.94577],[37.23297,-7.94586],[37.23347,-7.9458],[37.23373,-7.94563],[37.23386,-7.94538],[37.23388,-7.94501],[37.23359,-7.94367],[37.23344,-7.94299],[37.23344,-7.94284],[37.23346,-7.94277],[37.23351,-7.94265],[37.23356,-7.9426],[37.23367,-7.94253],[37.2339,-7.94252],[37.23416,-7.94255],[37.23422,-7.94257],[37.23436,-7.94264],[37.23447,-7.94272],[37.23457,-7.94276],[37.23464,-7.94277],[37.2347,-7.94276],[37.23479,-7.94272],[37.23485,-7.94264],[37.23498,-7.94224],[37.23508,-7.94187],[37.2351,-7.94169],[37.23506,-7.94123],[37.23501,-7.94085],[37.23484,-7.94037],[37.23475,-7.94004],[37.23474,-7.93986],[37.23479,-7.93956],[37.23486,-7.9394],[37.235,-7.93921],[37.23581,-7.93864],[37.23604,-7.93844],[37.23608,-7.93833],[37.2361,-7.93825],[37.23614,-7.93816],[37.23617,-7.93804],[37.23619,-7.93801],[37.23621,-7.93801],[37.23641,-7.93796],[37.23674,-7.93769],[37.237,-7.93748],[37.2371,-7.93739],[37.23744,-7.9371],[37.23756,-7.93701],[37.23763,-7.93698],[37.23779,-7.93691],[37.23793,-7.93685],[37.23807,-7.93682],[37.23836,-7.93677],[37.23842,-7.93675],[37.23862,-7.93665],[37.23873,-7.93657],[37.23897,-7.93632],[37.23904,-7.93628],[37.23914,-7.93623],[37.2392,-7.93622],[37.23927,-7.93622],[37.23941,-7.93625],[37.23955,-7.93631],[37.23964,-7.93636],[37.23972,-7.93642],[37.23981,-7.93652],[37.23987,-7.93663],[37.23998,-7.93686],[37.24014,-7.93725],[37.24019,-7.93737],[37.24023,-7.93745],[37.24039,-7.93781],[37.2404,-7.93783],[37.24056,-7.93818],[37.24066,-7.9384],[37.24086,-7.93885],[37.24118,-7.93956],[37.24128,-7.93976],[37.24136,-7.9399],[37.24149,-7.94006],[37.24167,-7.94027],[37.24196,-7.94063],[37.24222,-7.94097],[37.24229,-7.94106],[37.24234,-7.94116],[37.24237,-7.94125],[37.24238,-7.94137],[37.24236,-7.9415],[37.24215,-7.94283],[37.24214,-7.943],[37.24214,-7.94312],[37.24215,-7.94325],[37.24217,-7.94337],[37.2422,-7.94349],[37.24227,-7.94361],[37.24245,-7.9438],[37.24275,-7.94403],[37.24304,-7.94421],[37.24331,-7.94434],[37.24353,-7.94442],[37.24366,-7.94448],[37.24375,-7.94451],[37.24383,-7.94456],[37.24389,-7.94463],[37.244,-7.94481],[37.24431,-7.94535],[37.24478,-7.94617],[37.24492,-7.94644],[37.2452,-7.94688],[37.24554,-7.94736],[37.24597,-7.94792],[37.2463,-7.94836],[37.24665,-7.94883],[37.24703,-7.94935],[37.24722,-7.94963],[37.24736,-7.94983],[37.24748,-7.95001],[37.24803,-7.95071],[37.24851,-7.95139],[37.24868,-7.95161],[37.24879,-7.95175],[37.24884,-7.95183],[37.24913,-7.95228],[37.24932,-7.95256],[37.2497,-7.95292],[37.2515,-7.95393],[37.25186,-7.95418],[37.25199,-7.95428],[37.25208,-7.95439],[37.25224,-7.9546],[37.25244,-7.95491],[37.25252,-7.95502],[37.25264,-7.95515],[37.25277,-7.95523],[37.25295,-7.95528],[37.25369,-7.95538],[37.25387,-7.95539],[37.2543,-7.95545],[37.25478,-7.95552],[37.25497,-7.95554],[37.25563,-7.95565],[37.25598,-7.95574],[37.25641,-7.95585],[37.25644,-7.95586],[37.25651,-7.95587],[37.25661,-7.95587],[37.2574,-7.95601],[37.25775,-7.95612],[37.25807,-7.95627],[37.25818,-7.95632],[37.2584,-7.95643],[37.2585,-7.95649],[37.25883,-7.95673],[37.25922,-7.95706],[37.25939,-7.95723],[37.25946,-7.95736],[37.2595,-7.95748],[37.25951,-7.9576],[37.2595,-7.95772],[37.25946,-7.95802],[37.25946,-7.95811],[37.25946,-7.95817],[37.25948,-7.95825],[37.25953,-7.9583],[37.25959,-7.95835],[37.25965,-7.95838],[37.25971,-7.95839],[37.25977,-7.95838],[37.25989,-7.95832],[37.26015,-7.95821],[37.26031,-7.95813],[37.26042,-7.9581],[37.26049,-7.9581],[37.26068,-7.95819],[37.26089,-7.95829],[37.26117,-7.95853],[37.2616,-7.95891],[37.26166,-7.95898],[37.2618,-7.95918],[37.26185,-7.95925],[37.26207,-7.9596],[37.26241,-7.96017],[37.26281,-7.96082],[37.26299,-7.96114],[37.26303,-7.96126],[37.26306,-7.96141],[37.26307,-7.96156],[37.26306,-7.96168],[37.26305,-7.96174],[37.26306,-7.9619],[37.26307,-7.96198],[37.26309,-7.96203],[37.26315,-7.96211],[37.26322,-7.96217],[37.26329,-7.96219],[37.26336,-7.96219],[37.26345,-7.96217],[37.2636,-7.96214],[37.26389,-7.96206],[37.26398,-7.96203],[37.26404,-7.96197],[37.26409,-7.9619],[37.26413,-7.9618],[37.26418,-7.96155],[37.26423,-7.96143],[37.26427,-7.96137],[37.26429,-7.96135],[37.26435,-7.96131],[37.26443,-7.96129],[37.26453,-7.96129],[37.26461,-7.96131],[37.26467,-7.96136],[37.26493,-7.96155],[37.26521,-7.96176],[37.26542,-7.96194],[37.26595,-7.96233],[37.26615,-7.96251],[37.26642,-7.9628],[37.26663,-7.96303],[37.26689,-7.96331],[37.267,-7.96342],[37.26709,-7.9635],[37.26716,-7.96355],[37.26723,-7.96358],[37.26729,-7.96359],[37.26737,-7.96361],[37.26749,-7.96361],[37.26768,-7.96358],[37.26828,-7.96352],[37.26874,-7.96347],[37.26909,-7.96345],[37.26957,-7.96347],[37.26969,-7.9635],[37.26979,-7.96354],[37.26991,-7.9636],[37.27001,-7.96366],[37.2701,-7.96374],[37.27016,-7.96381],[37.27024,-7.96392],[37.27045,-7.96424],[37.27053,-7.96436],[37.27063,-7.96449],[37.27071,-7.96457],[37.27077,-7.9646],[37.27084,-7.96463],[37.27089,-7.96464],[37.27095,-7.96463],[37.27102,-7.96462],[37.27107,-7.9646],[37.27112,-7.96457],[37.27118,-7.96453],[37.27124,-7.96446],[37.2713,-7.96435],[37.27135,-7.96425],[37.27144,-7.96406],[37.27148,-7.96399],[37.27154,-7.96391],[37.27165,-7.96379],[37.27177,-7.96368],[37.27188,-7.96358],[37.27193,-7.96353],[37.27198,-7.96348],[37.27204,-7.9634],[37.27211,-7.96322],[37.27215,-7.96304],[37.27219,-7.96282],[37.27224,-7.96254],[37.27224,-7.96245],[37.27223,-7.96236],[37.27221,-7.96228],[37.27215,-7.96215],[37.27202,-7.96188],[37.27179,-7.96142],[37.27174,-7.96131],[37.27171,-7.96123],[37.2717,-7.96114],[37.27172,-7.96104],[37.27175,-7.96096],[37.27179,-7.9609],[37.27184,-7.96085],[37.27189,-7.96081],[37.27194,-7.96079],[37.27201,-7.9608],[37.2721,-7.96082],[37.27233,-7.96093],[37.27272,-7.96111],[37.2728,-7.96114],[37.27289,-7.96116],[37.27298,-7.96116],[37.27305,-7.96116],[37.27313,-7.96113],[37.27321,-7.96108],[37.27328,-7.961],[37.27333,-7.96092],[37.27338,-7.96083],[37.27341,-7.96076],[37.27344,-7.96065],[37.27346,-7.96053],[37.27346,-7.96042],[37.27345,-7.96031],[37.27343,-7.96019],[37.2734,-7.96009],[37.27327,-7.95978],[37.27323,-7.95968],[37.27322,-7.9596],[37.27322,-7.9595],[37.27324,-7.95939],[37.27327,-7.9593],[37.27332,-7.95922],[37.27353,-7.95883],[37.27358,-7.95873],[37.2736,-7.95865],[37.27362,-7.95856],[37.27362,-7.95847],[37.2736,-7.95836],[37.27346,-7.95796],[37.27339,-7.95777],[37.27337,-7.95766],[37.27338,-7.95757],[37.27339,-7.95748],[37.27342,-7.95738],[37.27353,-7.95705],[37.2736,-7.95688],[37.27365,-7.95678],[37.2737,-7.95669],[37.27375,-7.95664],[37.27382,-7.95659],[37.27403,-7.95645],[37.2743,-7.95627],[37.27477,-7.95599],[37.27496,-7.95589],[37.27523,-7.95576],[37.27546,-7.95565],[37.27553,-7.9556],[37.2756,-7.95554],[37.27566,-7.95546],[37.27569,-7.95539],[37.27571,-7.95531],[37.2758,-7.95481],[37.27582,-7.95464],[37.27583,-7.95452],[37.27583,-7.9544],[37.27582,-7.95426],[37.27577,-7.95378],[37.27576,-7.95369],[37.27577,-7.95359],[37.27578,-7.95348],[37.27581,-7.95337],[37.27614,-7.95231],[37.2763,-7.95178],[37.27635,-7.9516],[37.27638,-7.95148],[37.27639,-7.95137],[37.27639,-7.95124],[37.27637,-7.95094],[37.27635,-7.9506],[37.27634,-7.95049],[37.27636,-7.95042],[37.27639,-7.95034],[37.27641,-7.95029],[37.27647,-7.95024],[37.27655,-7.95022],[37.27682,-7.95019],[37.27688,-7.95017],[37.27693,-7.95011],[37.27696,-7.95007],[37.27697,-7.95],[37.27698,-7.94989],[37.27697,-7.94968],[37.27698,-7.9496],[37.27702,-7.94949],[37.27706,-7.94942],[37.27723,-7.94915],[37.27728,-7.94905],[37.2773,-7.94895],[37.27732,-7.9488],[37.27734,-7.9484],[37.27736,-7.94789],[37.27739,-7.947],[37.27742,-7.94643],[37.27744,-7.94632],[37.27748,-7.94623],[37.27752,-7.94616],[37.27759,-7.9461],[37.27769,-7.94606],[37.2779,-7.94602],[37.27827,-7.94594],[37.2785,-7.94588],[37.27859,-7.94584],[37.27865,-7.9458],[37.27872,-7.94573],[37.27876,-7.94568],[37.27881,-7.94559],[37.27889,-7.9454],[37.27921,-7.94462],[37.27953,-7.9438],[37.27967,-7.94346],[37.27972,-7.94338],[37.2798,-7.94331],[37.27986,-7.94329],[37.27993,-7.94328],[37.28002,-7.9433],[37.28011,-7.94334],[37.28034,-7.94346],[37.28075,-7.94367],[37.28081,-7.94369],[37.2809,-7.94372],[37.281,-7.94373],[37.28111,-7.94373],[37.2812,-7.94372],[37.2813,-7.94371],[37.28133,-7.94371],[37.28146,-7.94367],[37.28162,-7.94359],[37.28181,-7.94346],[37.28299,-7.9424],[37.2831,-7.94231],[37.28333,-7.94217],[37.2835,-7.94205],[37.28399,-7.94176],[37.2849,-7.94119],[37.28532,-7.94097],[37.28542,-7.94093],[37.28552,-7.94092],[37.28566,-7.94092],[37.28595,-7.94095],[37.28605,-7.94097],[37.28622,-7.94099],[37.28631,-7.94099],[37.28639,-7.94097],[37.2866,-7.94089],[37.28689,-7.94071],[37.2875,-7.94031],[37.28777,-7.94016],[37.28784,-7.94011],[37.28788,-7.94007],[37.28792,-7.94],[37.28795,-7.93992],[37.28799,-7.9398],[37.28804,-7.93954],[37.28807,-7.93948],[37.28811,-7.9394],[37.28819,-7.9393],[37.2883,-7.93922],[37.28876,-7.93886],[37.28889,-7.93877],[37.28903,-7.9387],[37.28914,-7.93866],[37.28921,-7.93866],[37.28929,-7.93867],[37.28937,-7.9387],[37.2897,-7.93884],[37.28991,-7.93894],[37.29079,-7.9394],[37.29207,-7.94085],[37.29324,-7.94217],[37.29336,-7.94229],[37.29348,-7.94236],[37.29359,-7.94241],[37.29426,-7.94263],[37.29452,-7.94275],[37.29469,-7.94285],[37.29495,-7.94301],[37.29552,-7.94357],[37.29639,-7.94421],[37.29646,-7.94426],[37.29652,-7.94431],[37.29657,-7.94439],[37.29664,-7.94456],[37.29678,-7.94498],[37.29685,-7.94511],[37.29695,-7.94521],[37.29707,-7.9453],[37.29746,-7.94552],[37.29788,-7.9458],[37.2983,-7.94611],[37.29916,-7.94677],[37.2996,-7.94705],[37.30034,-7.94749],[37.30044,-7.94759],[37.3006,-7.94786],[37.30086,-7.94829],[37.30107,-7.94861],[37.30146,-7.94924],[37.30179,-7.94979],[37.30188,-7.95003],[37.30197,-7.95032],[37.30207,-7.95065],[37.30199,-7.95066],[37.30188,-7.95059],[37.30178,-7.95053],[37.30174,-7.95057],[37.3017,-7.95059],[37.30164,-7.95059],[37.30159,-7.95057],[37.30155,-7.95052],[37.30153,-7.95046],[37.30153,-7.95041],[37.30154,-7.95035],[37.30155,-7.95033]];
+</script>
+<script>
+// Motor de pace notes (porta do pacote Swift PaceNotesCore).
+const PaceEngine = (() => {
+  const MPD = 111194.9; // metros por grau de latitude
+
+  function parseGPX(text) {
+    const doc = new DOMParser().parseFromString(text, 'application/xml');
+    return [...doc.querySelectorAll('trkpt, rtept')].map(e => [+e.getAttribute('lat'), +e.getAttribute('lon')]);
+  }
+
+  // Reamostra o percurso a intervalos fixos, em metros locais (x = leste, y = norte).
+  function buildTrack(raw, step = 5) {
+    const lat0 = raw[0][0], lon0 = raw[0][1];
+    const cosLat = Math.cos(lat0 * Math.PI / 180);
+    const pts = [], cum = [];
+    for (const [la, lo] of raw) {
+      const p = { x: (lo - lon0) * cosLat * MPD, y: (la - lat0) * MPD };
+      if (pts.length) {
+        const l = pts[pts.length - 1];
+        const d = Math.hypot(p.x - l.x, p.y - l.y);
+        if (d < 0.5) continue;
+        cum.push(cum[cum.length - 1] + d);
+      } else cum.push(0);
+      pts.push(p);
+    }
+    const xy = [];
+    const total = cum[cum.length - 1];
+    let seg = 0;
+    for (let d = 0; d <= total; d += step) {
+      while (seg < pts.length - 2 && cum[seg + 1] < d) seg++;
+      const span = cum[seg + 1] - cum[seg];
+      const t = span > 0 ? (d - cum[seg]) / span : 0;
+      xy.push({ x: pts[seg].x + (pts[seg + 1].x - pts[seg].x) * t, y: pts[seg].y + (pts[seg + 1].y - pts[seg].y) * t });
+    }
+    return { step, xy, lat0, lon0, cosLat, length: (xy.length - 1) * step };
+  }
+
+  function severity(r) {
+    return r < 20 ? 1 : r < 35 ? 2 : r < 55 ? 3 : r < 85 ? 4 : r < 140 ? 5 : 6;
+  }
+
+  const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+
+  // Rumo de cada segmento e curvatura com sinal (1/m, positivo = direita).
+  function curvature(tr, k = 3) {
+    const n = tr.xy.length, step = tr.step;
+    const h = new Array(Math.max(0, n - 1));
+    for (let i = 0; i < n - 1; i++) h[i] = Math.atan2(tr.xy[i + 1].x - tr.xy[i].x, tr.xy[i + 1].y - tr.xy[i].y);
+    const kap = new Float64Array(n);
+    for (let i = k; i < n - 1 - k; i++) kap[i] = wrap(h[i + k] - h[i - k]) / (2 * k * step);
+    return { h, kap };
+  }
+
+  // Velocidade realista ao longo do percurso: limitada pela aderência em curva
+  // (v = raiz(a·R)), com travagem antes das curvas e aceleração à saída.
+  // Devolve v (m/s) e o tempo acumulado T (s) em cada amostra.
+  function speedProfile(tr, o) {
+    const n = tr.xy.length, step = tr.step;
+    const { kap } = curvature(tr, 3);
+    const v = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      // usa a curvatura mais forte das amostras vizinhas, para não "cortar" a curva
+      let kk = 0;
+      for (let j = Math.max(0, i - 2); j <= Math.min(n - 1, i + 2); j++) kk = Math.max(kk, Math.abs(kap[j]));
+      v[i] = Math.max(3, Math.min(o.vmax, kk > 1e-6 ? Math.sqrt(o.latAcc / kk) : o.vmax));
+    }
+    for (let i = n - 2; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] ** 2 + 2 * o.decel * step));
+    v[0] = Math.min(v[0], 8);
+    for (let i = 1; i < n; i++) v[i] = Math.min(v[i], Math.sqrt(v[i - 1] ** 2 + 2 * o.accel * step));
+    const T = new Float64Array(n);
+    for (let i = 1; i < n; i++) T[i] = T[i - 1] + (2 * step) / (v[i - 1] + v[i]);
+    return { v, T };
+  }
+
+  function detect(tr, cfg) {
+    const k = cfg.window || 3, step = tr.step, n = tr.xy.length;
+    if (n < 2 * k + 4) return [];
+    const { h, kap } = curvature(tr, k);
+
+    const thr = 1 / cfg.maxRadius;
+    const runs = [];
+    for (let i = 0; i < n;) {
+      if (Math.abs(kap[i]) > thr) {
+        const pos = kap[i] > 0;
+        let j = i;
+        while (j + 1 < n && Math.abs(kap[j + 1]) > thr && (kap[j + 1] > 0) === pos) j++;
+        runs.push({ s: i, e: j, pos });
+        i = j + 1;
+      } else i++;
+    }
+    const merged = [];
+    for (const r of runs) {
+      const last = merged[merged.length - 1];
+      if (last && last.pos === r.pos && r.s - last.e <= cfg.mergeGap) last.e = r.e;
+      else merged.push({ ...r });
+    }
+    const median = a => [...a].sort((x, y) => x - y)[a.length >> 1];
+    const corners = [];
+    for (const r of merged) {
+      const a = Math.max(0, r.s - k), b = Math.min(n - 2, r.e + k);
+      if (b <= a) continue;
+      let total = 0;
+      for (let j = a; j < b; j++) total += wrap(h[j + 1] - h[j]);
+      const angle = Math.abs(total) * 180 / Math.PI;
+      if (angle < cfg.minAngle) continue;
+      const radii = [];
+      for (let j = r.s; j <= r.e; j++) radii.push(1 / Math.max(Math.abs(kap[j]), 1e-6));
+      const minR = Math.min(...radii);
+      const sev = severity(minR);
+      if (sev === 6 && angle < 45) continue;
+      let s0 = r.s + k, e0 = r.e - k;
+      if (e0 <= s0) { s0 = (r.s + r.e) >> 1; e0 = s0; }
+      let trend = 'none';
+      if (radii.length >= 8) {
+        const half = radii.length >> 1;
+        const f = median(radii.slice(0, half)), l = median(radii.slice(half));
+        if (l < f * 0.75) trend = 'tightens'; else if (l > f * 1.33) trend = 'opens';
+      }
+      corners.push({ start: s0 * step, end: e0 * step, dir: r.pos ? 'R' : 'L', angle, minR, sev,
+                     hairpin: minR < 22 && angle >= 110, trend });
+    }
+    return corners;
+  }
+
+  // Agrupa curvas muito próximas numa só chamada ("esquerda 3 para direita 4").
+  function buildNotes(corners, opt) {
+    const list = corners.filter(c => c.sev <= opt.maxSev);
+    const notes = [];
+    let cur = [];
+    const push = () => { if (cur.length) notes.push({ corners: cur, start: cur[0].start, end: cur[cur.length - 1].end }); };
+    for (const c of list) {
+      const last = cur[cur.length - 1];
+      if (last && c.start - last.end <= opt.linkGap && cur.length < opt.maxChain) cur.push(c);
+      else { push(); cur = [c]; }
+    }
+    push();
+    return notes;
+  }
+
+  function describe(c) {
+    const side = c.dir === 'L' ? 'esquerda' : 'direita';
+    const parts = [];
+    if (c.hairpin) parts.push('gancho à ' + side);
+    else {
+      parts.push(side + ' ' + c.sev);
+      if (c.end - c.start >= 70) parts.push('longa');
+    }
+    if (c.trend === 'tightens') parts.push('aperta');
+    if (c.trend === 'opens') parts.push('abre');
+    return parts.join(', ');
+  }
+
+  function noteText(note) {
+    const s = note.corners.map(describe).join(' para ');
+    return s[0].toUpperCase() + s.slice(1);
+  }
+
+  function spokenDistance(m) {
+    const v = m < 100 ? Math.max(10, Math.round(m / 10) * 10) : Math.round(m / 50) * 50;
+    return v + ' metros';
+  }
+
+  const call = (note, dist) => noteText(note) + ', ' + spokenDistance(dist);
+
+  return { MPD, parseGPX, buildTrack, curvature, speedProfile, detect, buildNotes, describe, noteText, spokenDistance, call, severity };
+})();
+
+
+</script>
+<script>
+(() => {
+  const E = PaceEngine;
+  const $ = id => document.getElementById(id);
+  const DEFAULTS = { lead: 4, maxR: 250, minAngle: 20, merge: 15, link: 40, maxSev: 5, rate: 1.05, kmh: 90, pace: 'normal' };
+  // Aceleração lateral usada para a velocidade em curva na simulação (m/s²).
+  const PACES = { constante: null, calmo: 2.5, normal: 3.5, rapido: 4.5 };
+  const SPECS = [
+    { k: 'lead', l: 'Antecedência: tempo entre o fim da frase e a curva', min: 2, max: 10, step: 0.5, u: ' s', main: true },
+    { k: 'maxR', l: 'Raio máximo para contar como curva', min: 120, max: 400, step: 10, u: ' m' },
+    { k: 'minAngle', l: 'Ângulo mínimo da curva', min: 10, max: 45, step: 1, u: '°' },
+    { k: 'merge', l: 'Juntar curvas do mesmo lado até', min: 0, max: 60, step: 5, u: ' m' },
+    { k: 'link', l: 'Ligar curvas com “para” até', min: 0, max: 100, step: 5, u: ' m' },
+    { k: 'maxSev', l: 'Chamar até à severidade', min: 3, max: 6, step: 1, u: '' },
+    { k: 'rate', l: 'Velocidade da voz', min: 0.8, max: 1.5, step: 0.05, u: '×' }
+  ];
+
+  let cfg = { ...DEFAULTS };
+  try { Object.assign(cfg, JSON.parse(localStorage.getItem('pn-cfg2') || '{}')); } catch (e) {}
+  if (!(cfg.pace in PACES)) cfg.pace = DEFAULTS.pace;
+  const save = () => { try { localStorage.setItem('pn-cfg2', JSON.stringify(cfg)); } catch (e) {} };
+
+  let raw = ROUTE, routeName = ROUTE_NAME;
+  let track, corners = [], notes = [], prof = null;
+  let gpsFix = null, gpsSpeed = null;
+
+  // ---- gravação da volta (modo GPS) ----
+  let rec = null;
+  try { rec = JSON.parse(localStorage.getItem('pn-rec') || 'null'); } catch (e) {}
+  let recDirty = 0;
+  function recStore(force) {
+    if (!rec) return;
+    if (!force && ++recDirty < 10) return;
+    recDirty = 0;
+    try { localStorage.setItem('pn-rec', JSON.stringify(rec)); } catch (e) {}
+  }
+  function recEnsure() {
+    if (!rec) rec = { version: 1, started: new Date().toISOString(), route: routeName, cfg: { ...cfg }, fixes: [], calls: [] };
+  }
+  function recShow() {
+    $('recInfo').textContent = rec
+      ? `Gravação: ${rec.fixes.length} pontos GPS · ${rec.calls.length} chamadas · desde ${new Date(rec.started).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}`
+      : 'Sem gravação. Começa a gravar quando ligares o GPS real.';
+    $('recSave').disabled = !rec || !rec.fixes.length;
+    $('recClear').disabled = !rec;
+  }
+  async function recDownload() {
+    if (!rec) return;
+    recStore(true);
+    const d = new Date(rec.started), p = n => String(n).padStart(2, '0');
+    const name = `volta-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+    const blob = new Blob([JSON.stringify(rec)], { type: 'application/json' });
+    try {
+      const file = new File([blob], name, { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+  let s = 0, nextIdx = 0, hudIdx = 0, speedNow = 0, lastTh = 0;
+  let playing = false, mode = 'sim', lastTs = 0;
+  let voiceOn = true, voices = [], gpsId = null, gpsIdx = null, gpsPrev = null;
+
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const fmt = (v, d = 1) => v.toFixed(d).replace('.', ',');
+
+  // ---- percurso e curvas ----
+  function setRoute(points, name) {
+    raw = points; routeName = name;
+    track = E.buildTrack(raw, 5);
+    $('seek').max = Math.round(track.length);
+    s = 0;
+    rebuildProfile();
+    recompute();
+  }
+
+  // Perfil de velocidade da simulação (null = velocidade constante).
+  function rebuildProfile() {
+    const lat = PACES[cfg.pace];
+    prof = lat ? E.speedProfile(track, { vmax: cfg.kmh / 3.6, latAcc: lat, decel: 3.5, accel: 1.8 }) : null;
+    const km = track.length / 1000;
+    const t = prof ? prof.T[prof.T.length - 1] : track.length / (cfg.kmh / 3.6);
+    $('simInfo').textContent = `Volta simulada: ${Math.round(t / 60)} min, média ${Math.round(km / (t / 3600))} km/h`;
+  }
+
+  const lerp = (arr, m) => {
+    const st = track.step, i = Math.min(arr.length - 2, Math.max(0, Math.floor(m / st)));
+    const f = Math.min(1, Math.max(0, (m - i * st) / st));
+    return arr[i] + (arr[i + 1] - arr[i]) * f;
+  };
+
+  // Segundos até chegar ao ponto `m` do percurso.
+  function timeTo(m) {
+    if (mode === 'sim' && prof) return lerp(prof.T, m) - lerp(prof.T, s);
+    return (m - s) / Math.max(speedNow, 5);
+  }
+
+  // Duração aproximada da frase falada (s).
+  const speechDur = text => text.length * 0.06 / cfg.rate + 0.3;
+
+  function recompute() {
+    corners = E.detect(track, { window: 3, maxRadius: cfg.maxR, minAngle: cfg.minAngle, mergeGap: Math.round(cfg.merge / 5) });
+    notes = E.buildNotes(corners, { linkGap: cfg.link, maxChain: 3, maxSev: cfg.maxSev });
+    const km = track.length / 1000;
+    $('stats').textContent = `${routeName} · ${fmt(km)} km · ${corners.length} curvas · ${notes.length} chamadas · ${fmt(notes.length / km)} por km`;
+    seekTo(s);
+  }
+
+  function seekTo(m) {
+    s = Math.max(0, Math.min(track.length, m));
+    nextIdx = notes.findIndex(n => n.start > s); if (nextIdx < 0) nextIdx = notes.length;
+    hudIdx = notes.findIndex(n => n.end >= s); if (hudIdx < 0) hudIdx = notes.length;
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+  }
+
+  // ---- voz ----
+  function loadVoices() {
+    if (!('speechSynthesis' in window)) return;
+    voices = speechSynthesis.getVoices().filter(v => /^pt/i.test(v.lang));
+    voices.sort((a, b) => (/pt[-_]PT/i.test(b.lang) ? 1 : 0) - (/pt[-_]PT/i.test(a.lang) ? 1 : 0));
+    const sel = $('voice');
+    sel.replaceChildren();
+    for (const v of voices) {
+      const o = document.createElement('option');
+      o.value = v.name; o.textContent = `${v.name} (${v.lang})`;
+      sel.appendChild(o);
+    }
+    if (!voices.length) { const o = document.createElement('option'); o.textContent = 'Voz por omissão'; sel.appendChild(o); }
+  }
+
+  function speak(text) {
+    if (!voiceOn || !('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const v = voices.find(x => x.name === $('voice').value) || voices[0];
+    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'pt-PT';
+    u.rate = cfg.rate;
+    speechSynthesis.speak(u);
+  }
+
+  // ---- chamadas ----
+  function fire(n, dist) {
+    const text = E.call(n, dist);
+    const busy = 'speechSynthesis' in window && speechSynthesis.speaking;
+    const skip = busy && n.corners.every(c => c.sev >= 4);
+    addLog(text, skip);
+    if (!skip) speak(text);
+    if (mode === 'gps') {
+      recEnsure();
+      rec.calls.push({ t: Date.now(), s: Math.round(s), dist: Math.round(dist), speed: +speedNow.toFixed(2), text, skipped: skip,
+                       corner: Math.round(n.start) });
+      recStore(true); recShow();
+    }
+    const el = $('callout');
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  }
+
+  // Dispara a chamada quando o tempo até à curva chega à duração da frase
+  // mais o tempo livre escolhido. O tempo conta com a velocidade real (GPS)
+  // ou com a travagem prevista (simulação).
+  function triggers() {
+    while (nextIdx < notes.length) {
+      const n = notes[nextIdx];
+      const dist = n.start - s;
+      const need = cfg.lead + speechDur(E.call(n, dist));
+      if (dist > 40 && timeTo(n.start) > need) break;
+      if (dist >= 15) fire(n, dist);
+      nextIdx++;
+    }
+  }
+
+  function addLog(text, skipped) {
+    const ul = $('log');
+    const li = document.createElement('li');
+    if (skipped) li.className = 'skipped';
+    const km = document.createElement('span'); km.className = 'km'; km.textContent = fmt(s / 1000, 2);
+    const tx = document.createElement('span'); tx.textContent = text + (skipped ? ' (saltada: voz ocupada)' : '');
+    li.append(km, tx);
+    ul.prepend(li);
+    while (ul.children.length > 80) ul.lastChild.remove();
+  }
+
+  // ---- mapa ----
+  function draw() {
+    const c = $('map'), r = c.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = r.width, h = r.height;
+    g.fillStyle = css('--map'); g.fillRect(0, 0, w, h);
+    const xy = track.xy, step = track.step, n = xy.length;
+    const i = Math.min(n - 2, Math.floor(s / step)), f = Math.min(1, (s - i * step) / step);
+    const px = xy[i].x + (xy[i + 1].x - xy[i].x) * f, py = xy[i].y + (xy[i + 1].y - xy[i].y) * f;
+    const j = Math.min(n - 1, i + 6);
+    if (j > i) lastTh = Math.atan2(xy[j].x - px, xy[j].y - py);
+    const sinT = Math.sin(lastTh), cosT = Math.cos(lastTh);
+    const cx = w / 2, cy = h * 0.74, sc = (h * 0.66) / 450;
+    const P = p => { const dx = p.x - px, dy = p.y - py; return [cx + (dx * cosT - dy * sinT) * sc, cy - (dx * sinT + dy * cosT) * sc]; };
+
+    // anéis de distância
+    g.strokeStyle = css('--line'); g.lineWidth = 1; g.fillStyle = css('--muted');
+    g.font = `500 10px ${css('--mono')}`;
+    for (const d of [100, 200, 300, 400]) {
+      g.beginPath(); g.arc(cx, cy, d * sc, 0, Math.PI * 2); g.stroke();
+      g.fillText(d + ' m', cx + 4, cy - d * sc - 3);
+    }
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    const path = (a, b) => { g.beginPath(); for (let k = a; k <= b; k++) { const [x, y] = P(xy[k]); k === a ? g.moveTo(x, y) : g.lineTo(x, y); } g.stroke(); };
+    g.lineWidth = 5; g.strokeStyle = css('--past'); path(Math.max(0, i - 100), i);
+    g.lineWidth = 6; g.strokeStyle = css('--road'); path(i, Math.min(n - 1, i + 190));
+
+    // marcas das curvas
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const k of corners) {
+      if (k.sev > cfg.maxSev || k.start < s - 40 || k.start > s + 700) continue;
+      const [x, y] = P(xy[Math.min(n - 1, Math.round(k.start / step))]);
+      g.fillStyle = css('--s' + Math.min(5, k.sev));
+      g.beginPath(); g.arc(x, y, 11, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#0b0d0e'; g.font = `700 13px ${css('--mono')}`;
+      g.fillText(k.hairpin ? 'G' : String(k.sev), x, y + 0.5);
+      g.fillStyle = css(k.dir === 'L' ? '--left' : '--right'); g.font = `700 18px ${css('--mono')}`;
+      g.fillText(k.dir === 'L' ? '‹' : '›', x + (k.dir === 'L' ? -19 : 19), y - 1);
+    }
+    // carro
+    g.fillStyle = css('--accent');
+    g.beginPath(); g.moveTo(cx, cy - 13); g.lineTo(cx + 9, cy + 9); g.lineTo(cx, cy + 4); g.lineTo(cx - 9, cy + 9); g.closePath(); g.fill();
+  }
+
+  function updateHud() {
+    while (hudIdx < notes.length && notes[hudIdx].end < s - 5) hudIdx++;
+    const n = notes[hudIdx];
+    if (!n) { $('callout').textContent = 'Sem mais curvas'; $('dist').textContent = ''; }
+    else {
+      $('callout').textContent = E.noteText(n);
+      const d = n.start - s;
+      $('dist').textContent = d <= 8 ? 'agora' : Math.round(d / 10) * 10 + ' m';
+    }
+    $('kmh').textContent = Math.round(speedNow * 3.6);
+    $('kmLabel').textContent = `${fmt(s / 1000, 2)} / ${fmt(track.length / 1000, 1)} km`;
+    if (document.activeElement !== $('seek')) $('seek').value = Math.round(s);
+  }
+
+  function tick(ts) {
+    const dt = Math.min(0.1, (ts - lastTs) / 1000 || 0); lastTs = ts;
+    if (mode === 'sim' && playing) {
+      speedNow = prof ? lerp(prof.v, s) : cfg.kmh / 3.6;
+      s += speedNow * dt;
+      if (s >= track.length) { s = track.length; setPlaying(false); }
+      triggers();
+    } else if (mode === 'gps' && gpsFix) {
+      // Entre leituras do GPS (cerca de 1 por segundo) avança com a velocidade suavizada.
+      const ahead = Math.min(2, (performance.now() - gpsFix.t) / 1000);
+      s = Math.min(track.length, gpsFix.s + gpsSpeed * ahead);
+      speedNow = gpsSpeed;
+      triggers();
+    }
+    draw(); updateHud();
+    requestAnimationFrame(tick);
+  }
+
+  function setPlaying(p) {
+    playing = p;
+    $('play').textContent = p ? 'Pausa' : (s >= track.length ? 'Recomeçar' : 'Iniciar');
+    if (!p) { speedNow = 0; if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+  }
+
+  // ---- GPS ----
+  function gpsMsg(t) { $('gpsMsg').textContent = t; }
+
+  function onPos(p) {
+    const n = track.xy.length;
+    const x = (p.coords.longitude - track.lon0) * track.cosLat * E.MPD, y = (p.coords.latitude - track.lat0) * E.MPD;
+    const search = (lo, hi) => {
+      let best = -1, bd = Infinity;
+      for (let k = lo; k <= hi; k++) { const d = Math.hypot(track.xy[k].x - x, track.xy[k].y - y); if (d < bd) { bd = d; best = k; } }
+      return [best, bd];
+    };
+    let [idx, d] = gpsIdx == null ? search(0, n - 1) : search(Math.max(0, gpsIdx - 20), Math.min(n - 1, gpsIdx + 200));
+    if (d > 60 && gpsIdx != null) [idx, d] = search(0, n - 1);
+    recEnsure();
+    rec.fixes.push({ t: p.timestamp, lat: +p.coords.latitude.toFixed(6), lon: +p.coords.longitude.toFixed(6),
+                     acc: Math.round(p.coords.accuracy), speed: p.coords.speed == null ? null : +p.coords.speed.toFixed(2),
+                     heading: p.coords.heading == null ? null : Math.round(p.coords.heading),
+                     s: d <= 80 ? idx * track.step : null, off: Math.round(d) });
+    recStore(false); recShow();
+    if (d > 80) { gpsMsg(`A ${Math.round(d)} m do percurso. Aproxima-te da rota para começar.`); return; }
+    const first = gpsIdx == null;
+    gpsIdx = idx;
+    const ns = idx * track.step;
+    if (first) seekTo(ns);
+    const now = p.timestamp;
+    let v = p.coords.speed;
+    if ((v == null || isNaN(v) || v < 0) && gpsPrev) v = Math.abs(ns - gpsPrev.s) / Math.max(0.5, (now - gpsPrev.t) / 1000);
+    gpsPrev = { s: ns, t: now };
+    // Suaviza a velocidade; leituras muito imprecisas não mexem nela.
+    if (v != null && !isNaN(v) && p.coords.accuracy <= 50) gpsSpeed = gpsSpeed == null ? v : gpsSpeed + 0.35 * (v - gpsSpeed);
+    if (gpsSpeed == null) gpsSpeed = 0;
+    gpsFix = { s: ns, t: performance.now() };
+    gpsMsg(`GPS ativo · precisão ${Math.round(p.coords.accuracy)} m · a ${Math.round(d)} m da rota`);
+  }
+
+  function startGps() {
+    if (!navigator.geolocation) { gpsMsg('Este navegador não tem GPS.'); return; }
+    gpsMsg('A procurar sinal…');
+    gpsIdx = null; gpsPrev = null; gpsFix = null; gpsSpeed = null;
+    gpsId = navigator.geolocation.watchPosition(onPos,
+      err => gpsMsg(err.code === 1
+        ? 'O GPS está bloqueado neste ambiente. Abre o ficheiro index.html num endereço https para usar o GPS real.'
+        : 'Sem sinal de GPS (' + err.message + ').'),
+      { enableHighAccuracy: true, maximumAge: 500, timeout: 20000 });
+    try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+  }
+
+  function stopGps() {
+    if (gpsId != null) navigator.geolocation.clearWatch(gpsId);
+    gpsId = null; gpsFix = null; gpsMsg('');
+  }
+
+  function setMode(m) {
+    mode = m;
+    $('modeSim').setAttribute('aria-pressed', m === 'sim');
+    $('modeGps').setAttribute('aria-pressed', m === 'gps');
+    $('simControls').hidden = m !== 'sim';
+    $('gpsBox').hidden = m !== 'gps';
+    setPlaying(false);
+    if (m === 'gps') startGps(); else stopGps();
+  }
+
+  // ---- interface ----
+  function buildTuning() {
+    for (const sp of SPECS) {
+      const box = $(sp.main ? 'mainTuning' : 'tuning');
+      const row = document.createElement('label'); row.className = 'row'; row.htmlFor = 't-' + sp.k;
+      const name = document.createElement('span'); name.textContent = sp.l;
+      const val = document.createElement('output'); val.id = 'v-' + sp.k;
+      const inp = document.createElement('input');
+      inp.type = 'range'; inp.id = 't-' + sp.k; inp.min = sp.min; inp.max = sp.max; inp.step = sp.step; inp.value = cfg[sp.k];
+      const show = () => { val.textContent = (sp.k === 'rate' ? fmt(+inp.value, 2) : inp.value) + sp.u; };
+      show();
+      inp.addEventListener('input', () => { cfg[sp.k] = +inp.value; show(); save(); recompute(); });
+      row.append(name, val, inp);
+      box.appendChild(row);
+    }
+  }
+
+  function init() {
+    buildTuning();
+    const speedText = () => { $('speedLabel').textContent = (PACES[cfg.pace] ? 'máx. ' : '') + cfg.kmh + ' km/h'; };
+    $('speedRange').value = cfg.kmh;
+    $('pace').value = cfg.pace;
+    speedText();
+    $('speedRange').addEventListener('input', e => { cfg.kmh = +e.target.value; speedText(); save(); rebuildProfile(); });
+    $('pace').addEventListener('change', e => { cfg.pace = e.target.value; speedText(); save(); rebuildProfile(); });
+    $('play').addEventListener('click', () => {
+      if (!playing && s >= track.length) seekTo(0);
+      if (!playing && 'speechSynthesis' in window) speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+      setPlaying(!playing);
+    });
+    $('seek').addEventListener('input', e => seekTo(+e.target.value));
+    $('voiceOn').addEventListener('change', e => { voiceOn = e.target.checked; if (!voiceOn && 'speechSynthesis' in window) speechSynthesis.cancel(); });
+    $('modeSim').addEventListener('click', () => setMode('sim'));
+    $('modeGps').addEventListener('click', () => setMode('gps'));
+    $('reset').addEventListener('click', () => {
+      Object.assign(cfg, DEFAULTS); save();
+      for (const sp of SPECS) { $('t-' + sp.k).value = cfg[sp.k]; $('t-' + sp.k).dispatchEvent(new Event('input')); }
+      $('speedRange').value = cfg.kmh; $('pace').value = cfg.pace; speedText(); rebuildProfile();
+    });
+    $('testVoice').addEventListener('click', () => speak('Esquerda 3, aperta, 100 metros'));
+    $('gpx').addEventListener('change', async e => {
+      const f = e.target.files[0]; if (!f) return;
+      const pts = E.parseGPX(await f.text());
+      if (pts.length < 10) { $('stats').textContent = 'Este ficheiro não tem um percurso válido.'; return; }
+      setPlaying(false); setRoute(pts, f.name.replace(/\.gpx$/i, ''));
+    });
+    $('clearLog').addEventListener('click', () => $('log').replaceChildren());
+    $('recSave').addEventListener('click', recDownload);
+    $('recClear').addEventListener('click', () => {
+      if ($('recClear').dataset.confirm !== '1') {
+        $('recClear').dataset.confirm = '1'; $('recClear').textContent = 'Confirmar apagar';
+        setTimeout(() => { $('recClear').dataset.confirm = ''; $('recClear').textContent = 'Apagar gravação'; }, 4000);
+        return;
+      }
+      rec = null; try { localStorage.removeItem('pn-rec'); } catch (e) {}
+      $('recClear').dataset.confirm = ''; $('recClear').textContent = 'Apagar gravação';
+      recShow();
+    });
+    recShow();
+    if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.addEventListener('voiceschanged', loadVoices); }
+    else { $('voiceOn').disabled = true; $('voice').disabled = true; $('testVoice').disabled = true; }
+    setRoute(raw, routeName);
+    setPlaying(false);
+    requestAnimationFrame(tick);
+  }
+  init();
+})();
+
+</script>
+</body></html>
